@@ -80,120 +80,121 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
   int height_of_rows[MAX_CANDIDATES_COUNT] = {0};    // height of every row
   int row_of_candidate[MAX_CANDIDATES_COUNT] = {0};  // row info of every cand
   int mintop_of_rows[MAX_CANDIDATES_COUNT] = {0};
+
   // only when there are candidates
   if (candidates_count) {
     w = offsetX + real_margin_x;
     for (auto i = 0; i < candidates_count && i < MAX_CANDIDATES_COUNT; ++i) {
-      int current_cand_width = 0;
       if (i > 0)
         w += _style.candidate_spacing;
       if (id == i)
         w += base_offset;
-      /* Label */
+
+      int start_w = w;
+
+      /* 1. Đo kích thước Label (số thứ tự 1., 2...) */
       std::wstring label =
           GetLabelText(labels, i, _style.label_text_format.c_str());
-      GetTextSizeDW(label, label.length(), pDWR->pLabelTextFormat, pDWR, &size);
-      _candidateLabelRects[i].SetRect(w, height, w + size.cx * labelFontValid,
-                                      height + size.cy);
-      w += size.cx * labelFontValid;
-      current_cand_width += size.cx * labelFontValid;
+      CSize sizeLabel;
+      GetTextSizeDW(label, label.length(), pDWR->pLabelTextFormat, pDWR, &sizeLabel);
+      int label_w = sizeLabel.cx * labelFontValid;
+      int label_h = sizeLabel.cy;
 
-      /* Text */
-      w += _style.hilite_spacing;
+      /* 2. Đo kích thước Text (Chữ Hán) */
       const std::wstring& text = candidates.at(i).str;
-      GetTextSizeDW(text, text.length(), pDWR->pTextFormat, pDWR, &size);
-      _candidateTextRects[i].SetRect(w, height, w + size.cx * textFontValid,
-                                     height + size.cy);
-      w += size.cx * textFontValid;
-      current_cand_width += (size.cx + _style.hilite_spacing) * textFontValid;
+      CSize sizeText;
+      GetTextSizeDW(text, text.length(), pDWR->pTextFormat, pDWR, &sizeText);
+      int text_w = sizeText.cx * textFontValid;
+      int text_h = sizeText.cy;
 
-      /* Comment */
+      /* 3. Đo kích thước Comment (Pinyin) */
+      CSize sizeComment(0, 0);
+      bool has_comment = false;
       bool cmtFontNotTrans =
           (i == id && (_style.hilited_comment_text_color & 0xff000000)) ||
           (i != id && (_style.comment_text_color & 0xff000000));
       if (!comments.at(i).str.empty() && cmtFontValid && cmtFontNotTrans) {
         const std::wstring& comment = comments.at(i).str;
         GetTextSizeDW(comment, comment.length(), pDWR->pCommentTextFormat, pDWR,
-                      &size);
-        w += _style.hilite_spacing;
-        _candidateCommentRects[i].SetRect(w, height, w + size.cx * cmtFontValid,
-                                          height + size.cy);
-        w += size.cx * cmtFontValid;
-        current_cand_width += (size.cx + _style.hilite_spacing) * cmtFontValid;
-      } else /* Used for highlighted candidate calculation below */
-        _candidateCommentRects[i].SetRect(w, height, w, height + size.cy);
+                      &sizeComment);
+        has_comment = true;
+      }
+      int cmt_w = sizeComment.cx * cmtFontValid;
+      int cmt_h = has_comment ? sizeComment.cy : 0;
+
+      // Chiều rộng nội dung: lấy theo chữ Hán hoặc Pinyin (cái nào dài hơn)
+      int content_w = max(text_w, cmt_w);
+      int cand_gap = has_comment ? 2 : 0; // khoảng cách dọc giữa Pinyin và chữ Hán
+      int cand_h = cmt_h + cand_gap + text_h;
+
+      // Tổng chiều rộng ứng viên
+      int total_cand_w = label_w + (label_w > 0 ? _style.hilite_spacing : 0) + content_w;
+
+      // 4. Định vị Label: Đặt ở tầng dưới, thẳng hàng với chữ Hán
+      _candidateLabelRects[i].SetRect(w, height + cmt_h + cand_gap, w + label_w,
+                                      height + cmt_h + cand_gap + label_h);
+      if (label_w > 0)
+        w += label_w + _style.hilite_spacing;
+
+      // 5. Định vị Comment (Pinyin): ĐẶT Ở TẦNG TRÊN, CĂN GIỮA
+      int cmt_x = w + (content_w - cmt_w) / 2;
+      _candidateCommentRects[i].SetRect(cmt_x, height, cmt_x + cmt_w, height + cmt_h);
+
+      // 6. Định vị Text (Chữ Hán): ĐẶT Ở TẦNG DƯỚI, CĂN GIỮA
+      int text_x = w + (content_w - text_w) / 2;
+      _candidateTextRects[i].SetRect(text_x, height + cmt_h + cand_gap,
+                                     text_x + text_w, height + cmt_h + cand_gap + text_h);
+
+      w = start_w + total_cand_w;
 
       int base_left = (i == id) ? _candidateLabelRects[i].left - base_offset
                                 : _candidateLabelRects[i].left;
-      // if not the first candidate of current row, and current candidate's
-      // right > _style.max_width
+
+      // Xử lý tự động xuống hàng nếu chiều dài vượt quá max_width
+      int cand_right = start_w + total_cand_w;
       if (_style.max_width > 0 && (base_left > real_margin_x + offsetX) &&
-          (_candidateCommentRects[i].right - offsetX + real_margin_x >
-           _style.max_width)) {
-        // max_width_of_rows current row
-        max_width_of_rows =
-            max(max_width_of_rows, _candidateCommentRects[i - 1].right);
+          (cand_right - offsetX + real_margin_x > _style.max_width)) {
+        max_width_of_rows = max(max_width_of_rows, start_w);
         w = offsetX + real_margin_x + (i == id ? base_offset : 0);
         int ofx = w - _candidateLabelRects[i].left;
         int ofy = height_of_rows[row_cnt] + _style.candidate_spacing;
-        // offset rects to next row
+
         _candidateLabelRects[i].OffsetRect(ofx, ofy);
         _candidateTextRects[i].OffsetRect(ofx, ofy);
         _candidateCommentRects[i].OffsetRect(ofx, ofy);
-        // max width of next row, if it's the last candidate, make sure
-        // max_width_of_rows calc right
-        max_width_of_rows =
-            max(max_width_of_rows, _candidateCommentRects[i].right);
+
         mintop_of_rows[row_cnt] = height;
         height += ofy;
-        // re calc rect position, decrease offsetX for origin
-        w += current_cand_width;
+        w += total_cand_w;
         row_cnt++;
-      } else
         max_width_of_rows = max(max_width_of_rows, w);
-      // calculate height of current row is the max of three rects
+      } else {
+        max_width_of_rows = max(max_width_of_rows, w);
+      }
+
       mintop_of_rows[row_cnt] = height;
-      height_of_rows[row_cnt] =
-          max(height_of_rows[row_cnt], _candidateLabelRects[i].Height());
-      height_of_rows[row_cnt] =
-          max(height_of_rows[row_cnt], _candidateTextRects[i].Height());
-      height_of_rows[row_cnt] =
-          max(height_of_rows[row_cnt], _candidateCommentRects[i].Height());
-      // set row info of current candidate
+      height_of_rows[row_cnt] = max(height_of_rows[row_cnt], cand_h);
       row_of_candidate[i] = row_cnt;
     }
 
-    // reposition for alignment, exp when rect height not equal to
-    // height_of_rows
+    // 7. Định vị khung highlight lựa chọn (bao trọn cả Pinyin ở trên và chữ Hán ở dưới)
     for (auto i = 0; i < candidates_count && i < MAX_CANDIDATES_COUNT; ++i) {
       int base_left = (i == id) ? _candidateLabelRects[i].left - base_offset
                                 : _candidateLabelRects[i].left;
+      int right_edge = max(_candidateTextRects[i].right, _candidateCommentRects[i].right);
       _candidateRects[i].SetRect(base_left, mintop_of_rows[row_of_candidate[i]],
-                                 _candidateCommentRects[i].right,
+                                 right_edge,
                                  mintop_of_rows[row_of_candidate[i]] +
                                      height_of_rows[row_of_candidate[i]]);
-      int ol = 0, ot = 0, oc = 0;
-      if (_style.align_type == UIStyle::ALIGN_CENTER) {
-        ol = (height_of_rows[row_of_candidate[i]] -
-              _candidateLabelRects[i].Height()) /
-             2;
-        ot = (height_of_rows[row_of_candidate[i]] -
-              _candidateTextRects[i].Height()) /
-             2;
-        oc = (height_of_rows[row_of_candidate[i]] -
-              _candidateCommentRects[i].Height()) /
-             2;
-      } else if (_style.align_type == UIStyle::ALIGN_BOTTOM) {
-        ol = (height_of_rows[row_of_candidate[i]] -
-              _candidateLabelRects[i].Height());
-        ot = (height_of_rows[row_of_candidate[i]] -
-              _candidateTextRects[i].Height());
-        oc = (height_of_rows[row_of_candidate[i]] -
-              _candidateCommentRects[i].Height());
+
+      // Căn giữa theo chiều dọc nếu có ứng viên khác trong cùng hàng cao hơn
+      int cand_h = _candidateCommentRects[i].Height() + 2 + _candidateTextRects[i].Height();
+      int dy = (height_of_rows[row_of_candidate[i]] - cand_h) / 2;
+      if (dy > 0) {
+        _candidateLabelRects[i].OffsetRect(0, dy);
+        _candidateTextRects[i].OffsetRect(0, dy);
+        _candidateCommentRects[i].OffsetRect(0, dy);
       }
-      _candidateLabelRects[i].OffsetRect(0, ol);
-      _candidateTextRects[i].OffsetRect(0, ot);
-      _candidateCommentRects[i].OffsetRect(0, oc);
     }
     height = mintop_of_rows[row_cnt] + height_of_rows[row_cnt] - offsetY;
     width = max(width, max_width_of_rows);
