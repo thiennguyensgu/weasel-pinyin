@@ -80,7 +80,6 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
   int height_of_rows[MAX_CANDIDATES_COUNT] = {0};    // height of every row
   int row_of_candidate[MAX_CANDIDATES_COUNT] = {0};  // row info of every cand
   int mintop_of_rows[MAX_CANDIDATES_COUNT] = {0};
-
   // only when there are candidates
   if (candidates_count) {
     w = offsetX + real_margin_x;
@@ -92,22 +91,23 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
 
       int start_w = w;
 
-      /* 1. Đo kích thước Label (số thứ tự 1., 2...) */
+      /* Label */
       std::wstring label =
           GetLabelText(labels, i, _style.label_text_format.c_str());
       CSize sizeLabel;
-      GetTextSizeDW(label, label.length(), pDWR->pLabelTextFormat, pDWR, &sizeLabel);
+      GetTextSizeDW(label, label.length(), pDWR->pLabelTextFormat, pDWR,
+                    &sizeLabel);
       int label_w = sizeLabel.cx * labelFontValid;
       int label_h = sizeLabel.cy;
 
-      /* 2. Đo kích thước Text (Chữ Hán) */
+      /* Text */
       const std::wstring& text = candidates.at(i).str;
       CSize sizeText;
       GetTextSizeDW(text, text.length(), pDWR->pTextFormat, pDWR, &sizeText);
       int text_w = sizeText.cx * textFontValid;
       int text_h = sizeText.cy;
 
-      /* 3. Đo kích thước Comment (Pinyin) */
+      /* Comment */
       CSize sizeComment(0, 0);
       bool has_comment = false;
       bool cmtFontNotTrans =
@@ -122,35 +122,32 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
       int cmt_w = sizeComment.cx * cmtFontValid;
       int cmt_h = has_comment ? sizeComment.cy : 0;
 
-      // Chiều rộng nội dung: lấy theo chữ Hán hoặc Pinyin (cái nào dài hơn)
       int content_w = max(text_w, cmt_w);
-      int cand_gap = has_comment ? 2 : 0; // khoảng cách dọc giữa Pinyin và chữ Hán
+      int cand_gap = has_comment ? 2 : 0;
       int cand_h = cmt_h + cand_gap + text_h;
+      int total_cand_w =
+          label_w + (label_w > 0 ? _style.hilite_spacing : 0) + content_w;
 
-      // Tổng chiều rộng ứng viên
-      int total_cand_w = label_w + (label_w > 0 ? _style.hilite_spacing : 0) + content_w;
-
-      // 4. Định vị Label: Đặt ở tầng dưới, thẳng hàng với chữ Hán
-      _candidateLabelRects[i].SetRect(w, height + cmt_h + cand_gap, w + label_w,
+      _candidateLabelRects[i].SetRect(w, height + cmt_h + cand_gap,
+                                      w + label_w,
                                       height + cmt_h + cand_gap + label_h);
       if (label_w > 0)
         w += label_w + _style.hilite_spacing;
 
-      // 5. Định vị Comment (Pinyin): ĐẶT Ở TẦNG TRÊN, CĂN GIỮA
       int cmt_x = w + (content_w - cmt_w) / 2;
-      _candidateCommentRects[i].SetRect(cmt_x, height, cmt_x + cmt_w, height + cmt_h);
+      _candidateCommentRects[i].SetRect(cmt_x, height, cmt_x + cmt_w,
+                                        height + cmt_h);
 
-      // 6. Định vị Text (Chữ Hán): ĐẶT Ở TẦNG DƯỚI, CĂN GIỮA
       int text_x = w + (content_w - text_w) / 2;
       _candidateTextRects[i].SetRect(text_x, height + cmt_h + cand_gap,
-                                     text_x + text_w, height + cmt_h + cand_gap + text_h);
+                                     text_x + text_w,
+                                     height + cmt_h + cand_gap + text_h);
 
       w = start_w + total_cand_w;
 
       int base_left = (i == id) ? _candidateLabelRects[i].left - base_offset
                                 : _candidateLabelRects[i].left;
 
-      // Xử lý tự động xuống hàng nếu chiều dài vượt quá max_width
       int cand_right = start_w + total_cand_w;
       if (_style.max_width > 0 && (base_left > real_margin_x + offsetX) &&
           (cand_right - offsetX + real_margin_x > _style.max_width)) {
@@ -177,18 +174,19 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
       row_of_candidate[i] = row_cnt;
     }
 
-    // 7. Định vị khung highlight lựa chọn (bao trọn cả Pinyin ở trên và chữ Hán ở dưới)
     for (auto i = 0; i < candidates_count && i < MAX_CANDIDATES_COUNT; ++i) {
       int base_left = (i == id) ? _candidateLabelRects[i].left - base_offset
                                 : _candidateLabelRects[i].left;
-      int right_edge = max(_candidateTextRects[i].right, _candidateCommentRects[i].right);
-      _candidateRects[i].SetRect(base_left, mintop_of_rows[row_of_candidate[i]],
+      int right_edge =
+          max(_candidateTextRects[i].right, _candidateCommentRects[i].right);
+      _candidateRects[i].SetRect(base_left,
+                                 mintop_of_rows[row_of_candidate[i]],
                                  right_edge,
                                  mintop_of_rows[row_of_candidate[i]] +
                                      height_of_rows[row_of_candidate[i]]);
 
-      // Căn giữa theo chiều dọc nếu có ứng viên khác trong cùng hàng cao hơn
-      int cand_h = _candidateCommentRects[i].Height() + 2 + _candidateTextRects[i].Height();
+      int cand_h = _candidateCommentRects[i].Height() + 2 +
+                   _candidateTextRects[i].Height();
       int dy = (height_of_rows[row_of_candidate[i]] - cand_h) / 2;
       if (dy > 0) {
         _candidateLabelRects[i].OffsetRect(0, dy);
@@ -212,7 +210,6 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
   }
   if (candidates_count) {
     for (auto i = 0; i < candidates_count && i < MAX_CANDIDATES_COUNT; ++i) {
-      // make rightest candidate's rect right the same for better look
       if ((i < candidates_count - 1 &&
            row_of_candidate[i] < row_of_candidate[i + 1]) ||
           (i == candidates_count - 1))
@@ -224,7 +221,6 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
   _contentSize.SetSize(width + offsetX, height + 2 * offsetY);
   _contentRect.SetRect(0, 0, _contentSize.cx, _contentSize.cy);
 
-  // calc page indicator
   if (page_en && candidates_count && !_style.inline_preedit) {
     int _prex = _contentSize.cx - offsetX - real_margin_x +
                 _style.hilite_padding_x - pgw;
@@ -239,14 +235,10 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
     }
   }
 
-  // prepare temp rect _bgRect for roundinfo calculation
   CopyRect(_bgRect, _contentRect);
   _bgRect.DeflateRect(offsetX + 1, offsetY + 1);
-  // prepare round info for single row status, only for single row situation
   _PrepareRoundInfo(dc);
-  // readjust for multi rows
-  if (row_cnt)  // row_cnt > 0, at least 2 candidates
-  {
+  if (row_cnt) {
     _roundInfo[0].IsBottomLeftNeedToRound = false;
     _roundInfo[candidates_count - 1].IsTopRightNeedToRound = false;
     for (auto i = 1; i < candidates_count; i++) {
@@ -258,6 +250,5 @@ void HorizontalLayout::DoLayout(CDCHandle dc, PDWR pDWR) {
         _roundInfo[i].IsTopRightNeedToRound = _style.inline_preedit;
     }
   }
-  // truely draw content size calculation
   _contentRect.DeflateRect(offsetX, offsetY);
 }
